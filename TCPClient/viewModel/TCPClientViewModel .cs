@@ -6,6 +6,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using System.Windows;
+using TCPClient.model.BL;
+using TCPClient.model.DAL;
 
 namespace TCPClient.viewModel
 {
@@ -13,6 +15,8 @@ namespace TCPClient.viewModel
     {
         private const int ROT_KEY = 55;
         private SimpleTcpClient client;
+        private LogContext _logContext;
+
 
         [ObservableProperty]
         private string? _ipAddress = "127.0.0.1:9000";
@@ -28,6 +32,8 @@ namespace TCPClient.viewModel
 
         [ObservableProperty]
         private bool _isConnectEnabled = true;
+        public ObservableCollection<string> LogMessages { get; set; } = new ObservableCollection<string>();
+
 
         public TCPClientViewModel()
         {
@@ -35,27 +41,32 @@ namespace TCPClient.viewModel
             client.Events.Connected += Events_Connected;
             client.Events.Disconnected += Events_Disconnected;
             client.Events.DataReceived += Events_DataReceived;
+            _logContext = new LogContext();
+            LoadLogs();
+
         }
 
-        // Method to handle server connection
-        private void Events_Connected(object? sender, ConnectionEventArgs e)
+        private void LogMessage(string message)
         {
-            Application.Current.Dispatcher.Invoke(() =>
+            var log = new Log
             {
-                Info += "Server connected\n";
-            });
-        }
+                Message = message,
+                Timestamp = DateTime.Now
+            };
 
-        // Method to handle server disconnection
-        private void Events_Disconnected(object sender, ConnectionEventArgs e)
+            _logContext.Logs.Add(log);
+            _logContext.SaveChanges();
+        }
+        private void LoadLogs()
         {
-            Application.Current.Dispatcher.Invoke(() =>
+            var logs = _logContext.Logs.OrderByDescending(log => log.Timestamp).Take(10).ToList();
+            foreach (var log in logs)
             {
-                Info += "Server disconnected\n";
-            });
+                LogMessages.Add($"{log.Timestamp}: {log.Message}");
+            }
         }
 
-        // Method to handle data reception
+        // Call this whenever you want to log a message
         private void Events_DataReceived(object? sender, SuperSimpleTcp.DataReceivedEventArgs e)
         {
             Application.Current.Dispatcher.Invoke(() =>
@@ -63,9 +74,33 @@ namespace TCPClient.viewModel
                 string encryptedMessage = Encoding.UTF8.GetString(e.Data);
                 string decryptedMessage = Chiffrement_C_sar.RotString(encryptedMessage, -ROT_KEY); // Decrypt
                 Info += $"Other Client: {decryptedMessage}\n";
+
+                // Log the message in the database
+                LogMessage(decryptedMessage);
             });
         }
 
+        private void Events_Connected(object? sender, ConnectionEventArgs e)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                Info += "Server connected\n";
+
+                // Log the connection
+                LogMessage("Server connected");
+            });
+        }
+
+        private void Events_Disconnected(object sender, ConnectionEventArgs e)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                Info += "Server disconnected\n";
+
+                // Log the disconnection
+                LogMessage("Server disconnected");
+            });
+        }
 
         // Command to connect to the server
         [RelayCommand]
